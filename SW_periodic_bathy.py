@@ -15,7 +15,6 @@ Here h is the depth, u is the velocity, g is the gravitational constant, and b
 the bathymetry.  
 """
 
-from __future__ import absolute_import
 import numpy as np
 from clawpack import riemann
 parallel = True
@@ -78,6 +77,9 @@ def setup(solver_type='classic', riemann_solver='geoclaw',weno_order=5,
     elif bathy == 'pwc': # piecewise-constant
         xfrac = xc-np.floor(xc)
         state.aux[0,:] = -1 + b_amp*(xfrac>=0.5)
+    elif bathy == 'constant':  # constant depth, chosen to have same linearized sound speed
+        H1 = 2/(1+1/(1-b_amp))
+        state.aux[0,:] = -H1
 
     if IC == 'pulse':
         state.q[0, :] = h_amp * np.exp(-(xc - 0)**2 / width**2) - state.aux[0, :]
@@ -85,6 +87,21 @@ def setup(solver_type='classic', riemann_solver='geoclaw',weno_order=5,
     elif IC == 'step':
         state.q[0,:] = h_amp*(xc<(xlower + 0.5*(xupper-xlower))) - state.aux[0,:]
         state.q[1, :] = (u_l*state.q[0,:])*(xc<(xlower + 0.5*(xupper-xlower)))
+    else:
+        # IC should be a text file with 3 columns: x, h, hu
+        # We assume it's a wave that should travel to the right
+        # so we place it at the left edge of the domain.
+        data = np.loadtxt(IC)
+        iclen = data.shape[0]
+        if xc[0]<1:  # Check we're really at left boundary, in case of parallel runs
+            state.q[0,:iclen] = data[:,1]
+            state.q[0,iclen:] = 0 - state.aux[0,iclen:]
+            state.q[1,:iclen] = data[:,2]
+            state.q[1,iclen:] = 0
+        else:
+            state.q[0,:] = 0 - state.aux[0,:]
+            state.q[1,:] = 0
+        state.grid.add_gauges([(100.25,)])
 
     claw = pyclaw.Controller()
     if parallel:
